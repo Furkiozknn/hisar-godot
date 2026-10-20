@@ -28,12 +28,6 @@ func update(dt: float) -> bool:
 		return false
 	_timer = THINK
 	var acted: bool = false
-	# cannons switch to the strongest target while a battering ram is out
-	var boss: bool = sim.boss() != null
-	for t: BattleSim.Tower in sim.towers:
-		var want: StringName = &"strong" if boss and t.type == &"cannon" else &"first"
-		while t.mode != want:
-			sim.cycle_mode(t)
 	var free: int = -1
 	for p: int in _pads:
 		if sim.tower_on_pad(p) == null:

@@ -54,6 +54,7 @@ var _focus_first: Control = null
 var _kills_lbl: Label = null
 var _kills_tower: BattleSim.Tower = null
 var _hud_buttons: Array[Button] = []
+var _banner: Control = null
 var _card_inner: float = 480.0
 
 var _last_gold: int = -1
@@ -614,6 +615,58 @@ func _refresh_wave_box() -> void:
 
 func clear_toasts() -> void:
 	_clear(_toasts)
+	if _banner != null and is_instance_valid(_banner):
+		_banner.queue_free()
+	_banner = null
+
+
+## Big centred "Wave 7" with the wave's enemy icons and counts, red on a ram wave.
+## Slides in and fades out over 1.8 s at 44 % of the screen height, under the toast stack.
+func wave_banner(w: int, counts: Dictionary, boss: bool) -> void:
+	if _banner != null and is_instance_valid(_banner):
+		_banner.queue_free()
+	var col: Color = Color(0.72, 0.1, 0.08) if boss else INK
+	var v := VBoxContainer.new()
+	v.name = "WaveBanner"
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.add_theme_constant_override("separation", 6)
+	var title: Label = _label("%s %d" % [Loc.t("wave"), w], 46 if compact else 58, true, col)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_color_override("font_outline_color", Color(1.0, 0.82, 0.78) if boss else Color(1, 0.95, 0.85))
+	title.add_theme_constant_override("outline_size", 10)
+	v.add_child(title)
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_theme_constant_override("separation", 8)
+	for type: StringName in GameData.ENEMY_ORDER:
+		if not counts.has(type):
+			continue
+		var chip := PanelContainer.new()
+		chip.theme_type_variation = "ToastBad" if boss and type == &"ram" else "Chip"
+		chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var h := HBoxContainer.new()
+		h.add_theme_constant_override("separation", 6)
+		h.add_child(Icon.make(String(type), 28))
+		h.add_child(_centered_v(_label(str(counts[type]), 18, true, Color(1, 0.97, 0.9) if boss and type == &"ram" else INK)))
+		chip.add_child(h)
+		row.add_child(chip)
+	v.add_child(row)
+	_hud.add_child(v)
+	_banner = v
+	v.reset_size()
+	var vs: Vector2 = root.size
+	var y: float = vs.y * 0.44 - v.size.y / 2.0
+	v.position = Vector2((vs.x - v.size.x) / 2.0, y - 24.0)
+	v.modulate = Color(1, 1, 1, 0)
+	var tw: Tween = v.create_tween()
+	tw.tween_property(v, "modulate:a", 1.0, 0.3)
+	tw.parallel().tween_property(v, "position:y", y, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_interval(1.0)
+	tw.tween_property(v, "modulate:a", 0.0, 0.5)
+	tw.parallel().tween_property(v, "position:y", y - 30.0, 0.5).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tw.tween_callback(v.queue_free)
 
 
 ## kind: "info" (neutral), "good" (green edge) or "bad" (red edge).

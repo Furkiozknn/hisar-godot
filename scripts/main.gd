@@ -200,6 +200,10 @@ func _apply_shot() -> void:
 				if sim.tower_on_pad(p) == null and (best < 0 or world.layout.pads[p].distance_to(Vector2(5, 0)) < world.layout.pads[best].distance_to(Vector2(5, 0))):
 					best = p
 			_select(best, true)
+		"wave":
+			# call the next wave now, so the wave-start banner is on screen
+			if sim.can_call_wave():
+				sim.start_wave()
 		"tower":
 			if not sim.towers.is_empty():
 				_select(sim.towers[sim.towers.size() - 1].pad, true)
@@ -217,8 +221,7 @@ func _on_wave_started(w: int, has_boss: bool) -> void:
 		Sound.play("boss")
 		ui.toast(Loc.t("ramComing"), "bad")
 		cam.shake(0.3)
-	else:
-		ui.toast("%s %d" % [Loc.t("wave"), w])
+	ui.wave_banner(w, sim.wave_counts(w), has_boss)
 
 
 func _on_wave_cleared(_w: int, bonus: int) -> void:

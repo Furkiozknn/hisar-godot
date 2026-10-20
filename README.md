@@ -29,6 +29,7 @@ Same rules, numbers, names and Turkish / English text as round 1, rebuilt with a
 - Three towers with three levels each (Archer Tower, Cannon Bastion, Tar Cauldron) and four
   enemies (Raider, Rider, Shieldbearer, Battering ram boss), all in `data/*.tres`.
 - Target modes (first / strongest / nearest), early wave calls with bonus gold, endless mode.
+- Wave-start banner with the enemy line-up (red on a battering-ram wave).
 - Juice: particle bursts, falling enemies, floating gold text, camera shake, damage vignette,
   pop-in tweens, boss health bar, fireworks on victory.
 - Menus with transitions: title, pause, settings (master / music / effects volume, language,
@@ -65,7 +66,7 @@ godot_console --path . -- --auto                                        # the bo
 ```
 
 User arguments (after `--`): `--auto` (bot plays), `--speed=N`, `--sim=SECONDS` (fast-forward the
-battle), `--shot=title|settings|build|tower|pause|win|lose`, `--cam=close|fort|camp|top`,
+battle), `--shot=title|settings|build|tower|wave|pause|win|lose`, `--cam=close|fort|camp|top`,
 `--lang=en`, `--low`, `--quit-on-end`, `--no-save`, `--noassets` (procedural models and vector icons, as before
 the asset port), `--touch` (touch-size buttons on a desktop, for screenshots).
 `GameState.get_state_text()` returns the current state as JSON.
@@ -80,9 +81,9 @@ remake your own round-1 game in Godot 4.7 (GDScript, Compatibility renderer) and
 This one was built by **Claude Opus 5.5** (`claude-opus-5-5`) with [Claude Code](https://claude.com/claude-code).
 The orchestrating session re-ran the checks independently before release:
 
-- `TESTS PASSED 276/276` at release (469/469 after the 2026-10-21 pass), clean headless import (no errors or warnings).
+- `TESTS PASSED 276/276` at release (472/472 after the 2026-10-21 passes), clean headless import (no errors or warnings).
 - The `--auto` bot plays all 15 waves: `LOSS at wave 15/15, lives 0, kills 522` (the balance is unchanged from round 1,
-  and the simple bot cannot hold the last battering ram).
+  and the simple bot cannot hold the last battering ram). Like the browser bot, it never changes target modes.
 - 60 FPS at 1280x720 on High quality on an Intel UHD 620 laptop GPU.
 
 The web build is exported on GitHub's servers by [`.github/workflows/pages.yml`](.github/workflows/pages.yml)

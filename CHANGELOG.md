@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-10-21 second pass
+
+- Wave-start banner: a big centred "Wave 7" / "Dalga 7" with the wave's enemy icons and counts at 44 % of the screen
+  height, under the toasts; red on a battering-ram wave. Slides in and fades out over 1.8 s (replaces the "Wave n" toast).
+- Title footer: "Claude Game Arena · built by Claude Opus 5.5 · assets remastered" / "… · varlıklar yenilendi".
+- G14: the bot no longer switches cannons to "Strongest" while a ram is out, so it plays like the browser bot. The full
+  `--auto` run is unchanged without it (`LOSS at wave 15/15, lives 0, kills 522, towers built 13`).
+- New `--shot=wave` hook (calls the next wave so the banner can be captured).
+- Tests: `TESTS PASSED 472/472` (new: the tower panel kill count updates live, the banner builds).
+
 ## 2026-10-21 overnight pass
 
 Ports the browser version's asset remaster to Godot, fixes the Godot bugs from the review and closes design-language gaps.
@@ -48,8 +58,8 @@ Rules, numbers and balance are unchanged.
 
 ### Not changed on purpose
 
-- G12 ("First" targeting by road fraction) and G14 (the bot's cannon mode switch): kept so the bot result stays
-  comparable with earlier runs; the browser version still uses the same targeting rule.
+- G12 ("First" targeting by road fraction): kept, the browser version uses the same rule and the change would move
+  the balance.
 
 ### Checks
 

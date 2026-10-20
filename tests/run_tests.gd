@@ -492,6 +492,29 @@ func test_best_wave_recorded_per_wave() -> void:
 	GameState.best_wave = before
 
 
+## The tower panel's kill count follows the tower while the panel stays open (review G4).
+func test_ui_kills_live() -> void:
+	var main: Node = (load("res://scenes/main.tscn") as PackedScene).instantiate()
+	add_child(main)
+	main.new_game()
+	var sim: BattleSim = main.sim
+	var t: BattleSim.Tower = sim.build(0, &"archer")
+	main._select(0)
+	var ui: Ui = main.ui
+	check(ui._kills_lbl != null and ui._kills_lbl.text == "0", "panel shows 0 kills")
+	t.kills += 7
+	ui._process(0.016)
+	check(ui._kills_lbl.text == "7", "kills update without rebuilding the panel")
+	ui.wave_banner(10, sim.wave_counts(10), true)
+	check(ui._banner != null and ui._banner.get_child_count() == 2, "wave banner: title and enemy row")
+	main.free()
+	Models.clear_cache()
+	MeshKit.clear_cache()
+	Fx.clear_cache()
+	Ui.clear_cache()
+	Icon.clear_cache()
+
+
 func test_ui_number_format() -> void:
 	check(Ui._fmt(7.0) == "7" and Ui._fmt(7.5) == "7.5" and Ui._fmt(1.0 / 0.45) == "2.2", "stat formatting")
 
