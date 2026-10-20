@@ -7,7 +7,6 @@ script = ExtResource("1_k24y1")
 id = &"cannon"
 name_key = "cannonName"
 desc_key = "cannonDesc"
-icon_color = Color(0.1882353, 0.20392157, 0.22745098, 1)
 cost = PackedInt32Array(110, 150, 220)
 reach = PackedFloat32Array(8.5, 9, 10)
 rate = PackedFloat32Array(2.4, 2.1, 1.8)

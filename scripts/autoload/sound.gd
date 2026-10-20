@@ -13,7 +13,7 @@ var _music_drums: AudioStreamPlayer
 var _drums_on: bool = false
 var _drum_tween: Tween
 var _rng := RandomNumberGenerator.new()
-var music_ready: bool = false
+var _slice_t0: int = 0
 ## False while the battle is fast-forwarded, so skipped seconds make no noise.
 var enabled: bool = true
 ## No audio device in headless runs (tests, bot) and Movie Maker captures (it only mixes
@@ -59,8 +59,8 @@ func _make_buses() -> void:
 
 func apply_volumes() -> void:
 	_set_bus("Master", Settings.master_volume)
-	_set_bus("Music", Settings.music_volume * 0.8)
-	_set_bus("SFX", Settings.sfx_volume)
+	_set_bus("Music", 0.0 if Settings.music_muted else Settings.music_volume * 0.8)
+	_set_bus("SFX", 0.0 if Settings.sfx_muted else Settings.sfx_volume)
 
 
 func _set_bus(bus: String, v: float) -> void:
@@ -169,10 +169,19 @@ const MELODY: Array = [
 const BASS: Array = [0, 0, -5, 0, 5, 1, -2, 0]
 
 
+## The music is rendered in slices of about 6 ms per frame (the web build has no threads),
+## so the title stays responsive while the loop is built.
+func _slice() -> void:
+	if Time.get_ticks_msec() - _slice_t0 > 6:
+		await get_tree().process_frame
+		_slice_t0 = Time.get_ticks_msec()
+
+
 func _build_music_deferred() -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
 	var t0: int = Time.get_ticks_msec()
+	_slice_t0 = t0
 	var r := RandomNumberGenerator.new()
 	r.seed = 1453
 	var bars: int = 8
@@ -187,22 +196,27 @@ func _build_music_deferred() -> void:
 	var p1: float = 0.0
 	var p2: float = 0.0
 	for i: int in range(calm.size()):
+		if i % 4096 == 0:
+			await _slice()
 		var t: float = float(i) / Synth.RATE
 		var swell: float = 0.75 + 0.25 * sin(t * TAU / (length / 2.0))
 		p1 += 146.83 * (1.0 + 0.002 * sin(t * 5.0)) / Synth.RATE
 		p2 += 220.0 / Synth.RATE
 		calm[i] = (table[int((p1 - floorf(p1)) * 1023.0)] * 0.05 + table[int((p2 - floorf(p2)) * 1023.0)] * 0.025) * swell
 	for n: Array in MELODY:
+		await _slice()
 		var f: float = D4 * pow(2.0, float(n[2]) / 12.0)
 		Synth.pluck(calm, float(n[0]) * EIGHTH, float(n[1]) * EIGHTH + 0.35, f, 0.32, r, 0.9965)
 		Synth.pluck(calm, float(n[0]) * EIGHTH + 0.012, float(n[1]) * EIGHTH + 0.2, f * 2.0, 0.07, r, 0.993)
 	for bar: int in range(bars):
+		await _slice()
 		var f: float = D4 * 0.25 * pow(2.0, float(BASS[bar]) / 12.0)
 		Synth.pluck(calm, bar * 9 * EIGHTH, 9 * EIGHTH, f, 0.4, r, 0.998)
 		Synth.pluck(calm, (bar * 9 + 6) * EIGHTH, 3 * EIGHTH, f * 1.5, 0.18, r, 0.997)
 	Synth.normalize(calm, 0.7)
 	var drums: PackedFloat32Array = Synth.buffer(length)
 	for bar: int in range(bars):
+		await _slice()
 		var o: float = bar * 9 * EIGHTH
 		for e: int in [0, 4]:  # DÜM
 			Synth.tone(drums, o + e * EIGHTH, 0.32, 95, 48, &"sine", 0.7)
@@ -213,10 +227,12 @@ func _build_music_deferred() -> void:
 		if bar % 2 == 1:
 			Synth.noise(drums, o + 8 * EIGHTH, 0.5, 0.12, 7000, &"bandpass", 1.2, r)  # zil
 	Synth.normalize(drums, 0.65)
+	await _slice()
+	if not is_inside_tree():
+		return
 	_music_calm.stream = Synth.to_wav(calm, true)
 	_music_drums.stream = Synth.to_wav(drums, true)
 	if not _headless:
 		_music_calm.play()
 		_music_drums.play()
-	music_ready = true
-	print_verbose("music rendered in %d ms" % (Time.get_ticks_msec() - t0))
+	print_verbose("music rendered in %d ms (wall clock, sliced)" % (Time.get_ticks_msec() - t0))

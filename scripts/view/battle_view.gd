@@ -367,7 +367,7 @@ func _draw_towers() -> void:
 		var d: Dictionary = _towers[uid]
 		var t: BattleSim.Tower = d["tower"]
 		var head: MeshInstance3D = d["head"]
-		var pivot: float = t.data.stat(t.data.pivot, t.level)
+		var pivot: float = Models.head_mount(t.type, t.level, t.data.stat(t.data.pivot, t.level))
 		var r: float = t.recoil * 0.18
 		head.rotation.y = t.yaw
 		var lift: float = t.recoil * 0.15 if t.type == &"tar" else 0.0

@@ -7,7 +7,6 @@ script = ExtResource("1_mpdgx")
 id = &"tar"
 name_key = "tarName"
 desc_key = "tarDesc"
-icon_color = Color(1, 0.5411765, 0.16470589, 1)
 cost = PackedInt32Array(80, 110, 170)
 reach = PackedFloat32Array(7, 7.5, 8.5)
 rate = PackedFloat32Array(2, 1.8, 1.5)

@@ -306,9 +306,23 @@ func _campfire(pos: Vector3) -> CPUParticles3D:
 func _build_fortress() -> void:
 	var mi := MeshInstance3D.new()
 	mi.name = "Fortress"
-	mi.mesh = Models.fortress()
+	var glb: ArrayMesh = Models.fortress_model()
+	var flags: Array[Vector3] = [Vector3(25, 9.5, -8), Vector3(25, 9.5, 8), Vector3(37, 9.5, -8), Vector3(37, 9.5, 8), Vector3(32, 11.9, 0)]
+	if glb != null:
+		mi.mesh = glb
+		mi.position = Models.fortress_origin()
+		# one banner on a pole above the keep, the highest point of the generated fortress
+		var top: Vector3 = mi.position + Vector3(0.9, glb.get_aabb().end.y, 0)
+		var pole := MeshInstance3D.new()
+		pole.name = "FlagPole"
+		pole.mesh = Models.flag_pole()
+		pole.position = top
+		add_child(pole)
+		flags = [top + Vector3(0, 2.0, 0)]
+	else:
+		mi.mesh = Models.fortress()
 	add_child(mi)
-	for p: Vector3 in [Vector3(25, 9.5, -8), Vector3(25, 9.5, 8), Vector3(37, 9.5, -8), Vector3(37, 9.5, 8), Vector3(32, 11.9, 0)]:
+	for p: Vector3 in flags:
 		var f := MeshInstance3D.new()
 		f.name = "Flag%d" % _flags.size()
 		f.mesh = Models.flag()

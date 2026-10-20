@@ -1,18 +1,154 @@
 class_name Models
 extends RefCounted
-## Every low-poly model in the game, built once from MeshKit parts and cached.
-## Shapes and colours follow the round-1 Three.js version, with a little more detail.
+## Every model in the game, built once and cached. Enemies, towers, the fortress and the
+## boat come from the generated GLB files in res://assets/models (shared with the browser
+## version) when they exist; every procedural MeshKit builder stays as the fallback.
 
 const ACCENT: int = 0xf59e0b
 const SKIN: int = 0xe2b48c
 const IRON: int = 0x6f747a
 const ROOF: int = 0xb3261e
 
+const MODEL_PATH: String = "res://assets/models/%s.glb"
+## Turns each model to face +Z (same numbers as MODEL_YAW in the browser version).
+const MODEL_YAW: Dictionary = {"raider": -PI / 2.0, "rider": PI, "shield": -PI / 2.0, "fortress": PI, "head-archer": -PI / 2.0, "head-cannon": -PI / 2.0}
+## Tower bases: world height per level, footprint width, top platform height as a fraction of the height.
+const TOWER_FIT: Dictionary = {
+	&"archer": {"h": [5.0, 5.8, 6.6], "w": 3.0, "floor": 0.49},
+	&"cannon": {"h": [1.7, 2.2, 2.7], "w": 3.6, "floor": 0.77},
+	&"tar": {"h": [2.4, 3.1, 3.8], "w": 2.4, "floor": 0.86},
+}
+## Largest side of each turret model at level 1.
+const HEAD_SIZE: Dictionary = {&"archer": 1.3, &"cannon": 1.5, &"tar": 1.2}
+const FORTRESS_SCALE: float = 14.0
+
+## False with --noassets: every model uses its procedural builder.
+static var use_assets: bool = true
 static var _cache: Dictionary = {}
 
 
 static func clear_cache() -> void:
 	_cache.clear()
+
+
+# ---------------------------------------------------------------- generated models
+## A normalised GLB model: {"pos", "uv" (non-indexed triangles, turned to face +Z, base centre
+## at the origin), "size", "mat"}. Empty when the file is missing or assets are off.
+static func asset(model_name: String) -> Dictionary:
+	if not use_assets:
+		return {}
+	return _cached("glb_" + model_name, func() -> Dictionary: return _load_asset(model_name)) as Dictionary
+
+
+static func _load_asset(model_name: String) -> Dictionary:
+	var path: String = MODEL_PATH % model_name
+	if not ResourceLoader.exists(path):
+		return {}
+	var scene := load(path) as PackedScene
+	if scene == null:
+		return {}
+	var root: Node = scene.instantiate()
+	var pos := PackedVector3Array()
+	var uv := PackedVector2Array()
+	var tex: Texture2D = null
+	var yaw := Basis(Vector3.UP, float(MODEL_YAW.get(model_name, 0.0)))
+	var stack: Array[Node] = [root]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		stack.append_array(n.get_children())
+		var mi := n as MeshInstance3D
+		if mi == null or mi.mesh == null:
+			continue
+		# the node's transform relative to the scene root
+		var xf: Transform3D = mi.transform
+		var p: Node = mi.get_parent()
+		while p is Node3D:
+			xf = (p as Node3D).transform * xf
+			p = p.get_parent()
+		xf = Transform3D(yaw, Vector3.ZERO) * xf
+		for s: int in range(mi.mesh.get_surface_count()):
+			var arrays: Array = mi.mesh.surface_get_arrays(s)
+			var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV] if arrays[Mesh.ARRAY_TEX_UV] != null else PackedVector2Array()
+			var idx: PackedInt32Array = arrays[Mesh.ARRAY_INDEX] if arrays[Mesh.ARRAY_INDEX] != null else PackedInt32Array()
+			if idx.is_empty():
+				idx.resize(verts.size())
+				for i: int in range(verts.size()):
+					idx[i] = i
+			for i: int in idx:
+				pos.append(xf * verts[i])
+				uv.append(uvs[i] if i < uvs.size() else Vector2.ZERO)
+			var bm := mi.get_active_material(s) as BaseMaterial3D
+			if tex == null and bm != null:
+				tex = bm.albedo_texture
+	root.free()
+	if pos.is_empty():
+		return {}
+	var box := AABB(pos[0], Vector3.ZERO)
+	for v: Vector3 in pos:
+		box = box.expand(v)
+	var shift := Vector3(-(box.position.x + box.end.x) / 2.0, -box.position.y, -(box.position.z + box.end.z) / 2.0)
+	for i: int in range(pos.size()):
+		pos[i] += shift
+	var mat := StandardMaterial3D.new()
+	mat.albedo_texture = tex
+	# white vertex colours carry the per-face shade and the MultiMesh instance tint (hit flash, slow)
+	mat.vertex_color_use_as_albedo = true
+	mat.roughness = 0.9
+	mat.metallic = 0.0
+	mat.metallic_specular = 0.25
+	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	return {"pos": pos, "uv": uv, "size": box.size, "mat": mat}
+
+
+## Flat-shaded mesh of a normalised model under xf (per-face normals, like the MeshKit parts).
+static func _bake(a: Dictionary, xf: Transform3D) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var pos: PackedVector3Array = a["pos"]
+	var uv: PackedVector2Array = a["uv"]
+	for t: int in range(0, pos.size() - 2, 3):
+		var p0: Vector3 = xf * pos[t]
+		var p1: Vector3 = xf * pos[t + 1]
+		var p2: Vector3 = xf * pos[t + 2]
+		var n: Vector3 = (p2 - p0).cross(p1 - p0)
+		if n.length_squared() < 1e-14:
+			continue
+		n = n.normalized()
+		var shade: float = 0.96 + 0.04 * n.y
+		var col := Color(shade, shade, shade)
+		for k: int in range(3):
+			st.set_color(col)
+			st.set_normal(n)
+			st.set_uv(uv[t + k])
+			st.add_vertex([p0, p1, p2][k])
+	var m: ArrayMesh = st.commit()
+	m.surface_set_material(0, a["mat"] as Material)
+	return m
+
+
+## Model scaled so its largest side is `size`.
+static func _sized(a: Dictionary, size: float, offset: Vector3 = Vector3.ZERO) -> ArrayMesh:
+	var sz: Vector3 = a["size"]
+	var s: float = size / maxf(sz.x, maxf(sz.y, sz.z))
+	return _bake(a, Transform3D(Basis.from_scale(Vector3.ONE * s), offset))
+
+
+## Height of the turret mount above the pad: the platform of the generated tower, or
+## `fallback` (the data pivot) for the procedural one. Visual only: the sim keeps TowerData.pivot.
+static func head_mount(type: StringName, level: int, fallback: float) -> float:
+	if asset("tower-" + type).is_empty():
+		return fallback
+	var f: Dictionary = TOWER_FIT[type]
+	return float(f["h"][clampi(level, 0, 2)]) * float(f["floor"])
+
+
+## Top of the tower including its turret, for picking.
+static func tower_top(type: StringName, level: int, fallback: float) -> float:
+	if asset("tower-" + type).is_empty():
+		return fallback
+	var h: float = float((TOWER_FIT[type] as Dictionary)["h"][clampi(level, 0, 2)])
+	return maxf(h, head_mount(type, level, 0.0) + float(HEAD_SIZE[type]) * (1.0 + 0.07 * float(level)))
 
 
 static func c(hex: int) -> Color:
@@ -27,7 +163,19 @@ static func _cached(key: String, build: Callable) -> Variant:
 
 # ---------------------------------------------------------------- enemies
 static func enemy(type: StringName) -> ArrayMesh:
-	return _cached("enemy_%s" % type, func() -> ArrayMesh: return _enemy(type)) as ArrayMesh
+	return _cached("enemy_%s" % type, func() -> ArrayMesh: return _enemy_model(type)) as ArrayMesh
+
+
+## The generated enemy keeps the procedural model's height, but is never much longer than it.
+static func _enemy_model(type: StringName) -> ArrayMesh:
+	var proc: ArrayMesh = _enemy(type)
+	var a: Dictionary = asset(String(type))
+	if a.is_empty():
+		return proc
+	var old: Vector3 = proc.get_aabb().size
+	var sz: Vector3 = a["size"]
+	var s: float = minf(old.y / sz.y, old.z / sz.z * 1.15)
+	return _bake(a, Transform3D(Basis.from_scale(Vector3.ONE * s), Vector3.ZERO))
 
 
 static func _enemy(type: StringName) -> ArrayMesh:
@@ -81,7 +229,48 @@ static func _enemy(type: StringName) -> ArrayMesh:
 # ---------------------------------------------------------------- towers
 ## Returns the tower body mesh for type and level (0..2).
 static func tower_base(type: StringName, level: int) -> ArrayMesh:
-	return _cached("tb_%s_%d" % [type, level], func() -> ArrayMesh: return _tower_base(type, level)) as ArrayMesh
+	return _cached("tb_%s_%d" % [type, level], func() -> ArrayMesh: return _tower_model(type, level)) as ArrayMesh
+
+
+## Generated tower base, a little taller and wider per level, plus the level trims
+## (pennant from level 2, gold band at level 3) as a second, vertex-coloured surface.
+static func _tower_model(type: StringName, level: int) -> ArrayMesh:
+	var a: Dictionary = asset("tower-" + type)
+	if a.is_empty():
+		return _tower_base(type, level)
+	var f: Dictionary = TOWER_FIT[type]
+	var h: float = float(f["h"][level])
+	var sz: Vector3 = a["size"]
+	var sxz: float = float(f["w"]) * (1.0 + 0.06 * float(level)) / maxf(sz.x, sz.z)
+	var xf := Transform3D(Basis.from_scale(Vector3(sxz, h / sz.y, sxz)), Vector3.ZERO)
+	var mesh: ArrayMesh = _bake(a, xf)
+	if level < 1:
+		return mesh
+	var pos: PackedVector3Array = a["pos"]
+	# widest point of the scaled model in a height band, to fit the trims around it
+	var radius_at := func(y0: float, y1: float) -> float:
+		var r: float = 0.0
+		for v: Vector3 in pos:
+			var q: Vector3 = xf * v
+			if q.y >= y0 and q.y <= y1:
+				r = maxf(r, Vector2(q.x, q.z).length())
+		return r
+	var k := MeshKit.new()
+	var fx: float = 0.0 if type == &"archer" else float(radius_at.call(h * 0.8, h)) * 0.62
+	var top: float = h - 0.15 if type == &"archer" else h
+	k.cyl(0.035, 0.035, 1.3, 4, c(0x5a3d22), Vector3(fx, top + 0.6, 0))
+	k.box(Vector3(0.05, 0.42, 0.75), c(ACCENT), Vector3(fx, top + 1.0, 0.4))
+	if level >= 2:
+		var y: float = h * (0.45 if type == &"cannon" else 0.32)
+		var r: float = radius_at.call(y - h * 0.06, y + h * 0.06)
+		if type == &"tar":
+			k.box(Vector3(r * 1.42 + 0.1, 0.16, r * 1.42 + 0.1), c(ACCENT), Vector3(0, y, 0))
+		else:
+			k.torus(r * 0.98, 0.1, c(ACCENT), Vector3(0, y, 0), Vector3.ZERO, 20)
+	var trim: ArrayMesh = k.commit()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, trim.surface_get_arrays(0))
+	mesh.surface_set_material(1, MeshKit.material())
+	return mesh
 
 
 static func _tower_base(type: StringName, level: int) -> ArrayMesh:
@@ -145,7 +334,11 @@ static func _tower_base(type: StringName, level: int) -> ArrayMesh:
 
 ## The rotating turret part: archer, cannon barrel, or the tar cauldron.
 static func tower_head(type: StringName, level: int) -> ArrayMesh:
-	return _cached("th_%s_%d" % [type, level], func() -> ArrayMesh: return _tower_head(type, level)) as ArrayMesh
+	return _cached("th_%s_%d" % [type, level], func() -> ArrayMesh:
+		var a: Dictionary = asset("head-" + type)
+		if a.is_empty():
+			return _tower_head(type, level)
+		return _sized(a, float(HEAD_SIZE[type]) * (1.0 + 0.07 * float(level)))) as ArrayMesh
 
 
 static func _tower_head(type: StringName, level: int) -> ArrayMesh:
@@ -216,6 +409,10 @@ static func tent() -> ArrayMesh:
 
 static func boat() -> ArrayMesh:
 	return _cached("boat", func() -> ArrayMesh:
+		var a: Dictionary = asset("boat")
+		if not a.is_empty():
+			# the mast is the largest side, as tall as the procedural one
+			return _sized(a, 3.6, Vector3(0, -0.3, 0))
 		var k := MeshKit.new()
 		k.box(Vector3(1.2, 0.5, 3.2), c(0x7a5232), Vector3(0, 0.25, 0))
 		k.box(Vector3(0.9, 0.2, 2.6), c(0x9c6f45), Vector3(0, 0.55, 0))
@@ -223,6 +420,11 @@ static func boat() -> ArrayMesh:
 		k.box(Vector3(0.04, 2.2, 1.8), c(0xf5ead2), Vector3(0, 2.2, 0.25))
 		k.box(Vector3(0.05, 0.3, 0.5), c(ROOF), Vector3(0, 3.6, 0.45))
 		return k.commit()) as ArrayMesh
+
+
+static func flag_pole() -> ArrayMesh:
+	return _cached("flag_pole", func() -> ArrayMesh:
+		return MeshKit.new().cyl(0.06, 0.06, 2.6, 4, c(0x6e4a2a), Vector3(0, 1.3, 0)).commit()) as ArrayMesh
 
 
 static func arrow() -> ArrayMesh:
@@ -256,6 +458,22 @@ static func flag() -> ArrayMesh:
 
 
 # ---------------------------------------------------------------- fortress
+## The generated fortress at its world scale (gate side facing -X), or null.
+static func fortress_model() -> ArrayMesh:
+	return _cached("fortress_glb", func() -> Variant:
+		var a: Dictionary = asset("fortress")
+		if a.is_empty():
+			return null
+		return _bake(a, Transform3D(Basis.from_scale(Vector3.ONE * FORTRESS_SCALE), Vector3.ZERO))) as ArrayMesh
+
+
+## Where the generated fortress stands: its gate wall on x = 25, where the roads end.
+static func fortress_origin() -> Vector3:
+	var a: Dictionary = asset("fortress")
+	var sx: float = (a["size"] as Vector3).x if not a.is_empty() else 0.0
+	return Vector3(25.0 + sx * FORTRESS_SCALE / 2.0 - 0.3, 0.0, 0.0)
+
+
 static func fortress() -> ArrayMesh:
 	return _cached("fortress", _fortress) as ArrayMesh
 

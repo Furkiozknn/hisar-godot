@@ -17,6 +17,8 @@ var _end_timer: float = -1.0
 var _fx_timer: float = 0.0
 var _auto_start: float = -1.0
 var _pad_order: Array[int] = []
+## Best wave when this run started, for the end screen's "New best!" and the mid-run toast.
+var _best_at_start: int = 0
 var _rng := RandomNumberGenerator.new()
 
 @onready var world: World = $World
@@ -57,6 +59,7 @@ func _exit_tree() -> void:
 	MeshKit.clear_cache()
 	Fx.clear_cache()
 	Ui.clear_cache()
+	Icon.clear_cache()
 
 
 # ---------------------------------------------------------------- flow
@@ -88,26 +91,29 @@ func new_game(snapshot: Variant = null) -> void:
 	sim = BattleSim.new(GameData.load_default(), MapLayout.get_default(), seed_value)
 	if snapshot is Dictionary:
 		sim.load_snapshot(snapshot as Dictionary)
+	else:
+		# a fresh game (Play, Restart) drops the abandoned run, so Continue cannot bring it back
+		GameState.clear_run()
+	_best_at_start = GameState.best_wave
 	GameState.sim = sim
 	GameState.screen = "playing"
-	GameState.count_game()
 	sim.wave_started.connect(_on_wave_started)
 	sim.wave_cleared.connect(_on_wave_cleared)
-	sim.early_bonus_paid.connect(func(n: int) -> void: ui.toast(Loc.t("early", {"n": n})))
+	sim.early_bonus_paid.connect(func(n: int) -> void: ui.toast(Loc.t("early", {"n": n}), "good"))
 	sim.lives_changed.connect(_on_lives_changed)
 	sim.denied.connect(func(_r: StringName) -> void:
 		Sound.play("deny")
-		ui.toast(Loc.t("noGold")))
+		ui.toast(Loc.t("noGold"), "bad"))
 	sim.tower_built.connect(func(t: BattleSim.Tower) -> void:
 		Sound.play("build")
 		if not GameState.auto:
-			ui.toast(Loc.t("built", {"name": Loc.t(t.data.name_key)})))
+			ui.toast(Loc.t("built", {"name": Loc.t(t.data.name_key)}), "good"))
 	sim.tower_upgraded.connect(func(t: BattleSim.Tower) -> void:
 		Sound.play("upgrade")
-		ui.toast(Loc.t("upgraded", {"name": Loc.t(t.data.name_key)})))
+		ui.toast(Loc.t("upgraded", {"name": Loc.t(t.data.name_key)}), "good"))
 	sim.tower_sold.connect(func(_t: BattleSim.Tower, r: int) -> void:
 		Sound.play("coin")
-		ui.toast(Loc.t("sold", {"n": r})))
+		ui.toast(Loc.t("sold", {"n": r}), "good"))
 	sim.game_ended.connect(_on_game_ended)
 	battle.bind(sim)
 	ui.bind(sim)
@@ -122,7 +128,7 @@ func new_game(snapshot: Variant = null) -> void:
 	else:
 		ui.toast(Loc.t("hint"))
 	if sim.wave > 0:
-		ui.toast(Loc.t("continue", {"n": sim.wave + 1}))
+		ui.toast(Loc.t("continued", {"n": sim.wave + 1}))
 
 
 func _fast_forward(seconds: float) -> void:
@@ -209,7 +215,7 @@ func _on_wave_started(w: int, has_boss: bool) -> void:
 	Sound.play("horn")
 	if has_boss:
 		Sound.play("boss")
-		ui.toast(Loc.t("ramComing"))
+		ui.toast(Loc.t("ramComing"), "bad")
 		cam.shake(0.3)
 	else:
 		ui.toast("%s %d" % [Loc.t("wave"), w])
@@ -217,9 +223,12 @@ func _on_wave_started(w: int, has_boss: bool) -> void:
 
 func _on_wave_cleared(_w: int, bonus: int) -> void:
 	Sound.play("clear")
-	ui.toast(Loc.t("cleared", {"n": bonus}))
+	ui.toast(Loc.t("cleared", {"n": bonus}), "good")
 	if not sim.over:
 		GameState.save_run(sim)
+		# the record counts as soon as the wave is cleared, even if the run is never finished
+		if GameState.record_wave(sim.wave) and _best_at_start > 0 and sim.wave == _best_at_start + 1:
+			ui.toast(Loc.t("newBest"), "good")
 	if GameState.auto:
 		print("wave %d cleared: gold %d, lives %d, towers %d, kills %d" % [sim.wave, sim.gold, sim.lives, sim.towers.size(), sim.kills])
 
@@ -237,8 +246,9 @@ func _on_game_ended(won: bool) -> void:
 	ui.close_panel()
 	battle.show_range(-1, 0.0)
 	_end_timer = 1.4
-	var reached: int = sim.wave if won else sim.wave - 1
-	var record: bool = GameState.record_wave(maxi(0, reached))
+	var reached: int = maxi(0, sim.wave if won else sim.wave - 1)
+	GameState.record_wave(reached)
+	var record: bool = reached > _best_at_start
 	GameState.clear_run()
 	sim.set_meta("new_best", record)
 	if GameState.auto:
@@ -313,7 +323,13 @@ func _on_action(act: StringName, arg: Variant) -> void:
 		&"speed":
 			_set_speed(SPEEDS[(SPEEDS.find(speed) + 1) % SPEEDS.size()] if SPEEDS.has(speed) else 1)
 		&"mute":
-			Settings.set_value(&"master_volume", 0.8 if Settings.master_volume <= 0.001 else 0.0)
+			Settings.toggle_mute()
+		&"toggle_music":
+			Settings.set_value(&"music_muted", not Settings.music_muted)
+			ui.toast(Loc.t("musicOff" if Settings.music_muted else "musicOn"))
+		&"toggle_sfx":
+			Settings.set_value(&"sfx_muted", not Settings.sfx_muted)
+			ui.toast(Loc.t("sfxOff" if Settings.sfx_muted else "sfxOn"))
 		&"build":
 			_build(arg as StringName)
 		&"upgrade":
@@ -330,6 +346,7 @@ func _on_action(act: StringName, arg: Variant) -> void:
 
 
 func _back_from_settings() -> void:
+	Settings.save_settings()
 	if _settings_from == "pause" and sim != null:
 		ui.show_screen("pause")
 	else:
@@ -441,7 +458,8 @@ func _cycle_pad(step: int) -> void:
 
 # ---------------------------------------------------------------- input
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("pause_menu"):
+	# Esc / B goes back one step: settings, then the pad panel, then pause
+	if event.is_action_pressed("back"):
 		if ui.screen == "settings":
 			_back_from_settings()
 		elif ui.panel_open() and not paused:
@@ -450,8 +468,22 @@ func _unhandled_input(event: InputEvent) -> void:
 			set_paused(not paused)
 		get_viewport().set_input_as_handled()
 		return
+	# P / Start always pauses or resumes, whatever is open
+	if event.is_action_pressed("pause"):
+		if ui.screen == "settings" and _settings_from == "pause":
+			_back_from_settings()
+		elif sim != null and not sim.over and (ui.screen == "" or ui.screen == "pause"):
+			set_paused(not paused)
+		get_viewport().set_input_as_handled()
+		return
 	if event.is_action_pressed("toggle_language"):
 		_on_action(&"lang", null)
+		return
+	if event.is_action_pressed("toggle_music"):
+		_on_action(&"toggle_music", null)
+		return
+	if event.is_action_pressed("toggle_sfx"):
+		_on_action(&"toggle_sfx", null)
 		return
 	if sim == null or ui.overlay_open():
 		return
@@ -465,8 +497,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		_start_wave()
 	elif event.is_action_pressed("speed_toggle"):
 		_on_action(&"speed", null)
-	elif event.is_action_pressed("cancel"):
-		_deselect()
 	elif event.is_action_pressed("select"):
 		# gamepad: pick the pad nearest the camera's focus point
 		_select(_nearest_pad(Vector2(cam.target.x, cam.target.z), 8.0), true)
@@ -496,7 +526,8 @@ func _handle_pointer(event: InputEvent) -> void:
 			_press_valid = true
 		elif _press_valid:
 			_press_valid = false
-			if mb.position.distance_to(_press_pos) < 8.0 and _playing():
+			# a pinch or twist ends with an emulated release of the first finger: not a tap
+			if mb.position.distance_to(_press_pos) < 8.0 and _playing() and not cam.gesture_seen:
 				var pad: int = _pick_pad(mb.position)
 				if pad >= 0:
 					Sound.play("click")
@@ -528,7 +559,7 @@ func _pick_pad(screen_pos: Vector2) -> int:
 		var top: float = 0.4
 		var t: BattleSim.Tower = sim.tower_on_pad(i)
 		if t != null:
-			top = BattleSim.PAD_BASE + t.data.stat(t.data.pivot, t.level) + 1.2
+			top = BattleSim.PAD_BASE + Models.tower_top(t.type, t.level, t.data.stat(t.data.pivot, t.level) + 1.2)
 		var h: float = top
 		while h >= 0.0:
 			var k: float = (h - o.y) / d.y

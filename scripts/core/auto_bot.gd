@@ -10,7 +10,6 @@ var sim: BattleSim
 var _pads: Array[int] = []
 var _plan_idx: int = 0
 var _timer: float = 0.0
-var auto_endless: bool = false
 
 
 func _init(battle: BattleSim) -> void:

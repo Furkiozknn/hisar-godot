@@ -27,9 +27,5 @@ func t(key: String, vars: Dictionary = {}) -> String:
 	return s
 
 
-func has_key(key: String) -> bool:
-	return _table.tr_text.has(key) and _table.en_text.has(key)
-
-
 func toggle() -> void:
 	Settings.set_value(&"language", "tr" if Settings.language == "en" else "en")

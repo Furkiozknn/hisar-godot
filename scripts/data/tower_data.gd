@@ -5,7 +5,6 @@ extends Resource
 @export var id: StringName = &""
 @export var name_key: String = ""
 @export var desc_key: String = ""
-@export var icon_color: Color = Color.WHITE
 @export var cost: PackedInt32Array = PackedInt32Array()
 @export var reach: PackedFloat32Array = PackedFloat32Array()
 ## Seconds between shots.

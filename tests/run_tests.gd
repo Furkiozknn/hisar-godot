@@ -333,19 +333,106 @@ func test_synth_wav() -> void:
 
 
 # ---------------------------------------------------------------- view helpers
-func test_models_build() -> void:
+## Vertices over every surface of a mesh.
+func _vert_count(m: ArrayMesh) -> int:
+	var n: int = 0
+	for i: int in range(m.get_surface_count()):
+		n += (m.surface_get_arrays(i)[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()
+	return n
+
+
+func _check_models(label: String) -> void:
 	for type: StringName in GameData.ENEMY_ORDER:
-		check(Models.enemy(type).get_surface_count() == 1, "enemy model %s" % type)
+		check(Models.enemy(type).get_surface_count() == 1, "%s: enemy model %s" % [label, type])
 	for type: StringName in GameData.TOWER_ORDER:
 		for lv: int in range(3):
 			var base: ArrayMesh = Models.tower_base(type, lv)
-			check(base.get_surface_count() == 1 and Models.tower_head(type, lv).get_surface_count() == 1, "tower model %s L%d" % [type, lv + 1])
-	var l1: int = (Models.tower_base(&"archer", 0).surface_get_arrays(0)[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()
-	var l3: int = (Models.tower_base(&"archer", 2).surface_get_arrays(0)[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()
-	check(l3 > l1, "higher levels add detail")
-	check(Models.enemy(&"raider") == Models.enemy(&"raider"), "models are cached")
+			check(base.get_surface_count() >= 1 and Models.tower_head(type, lv).get_surface_count() == 1, "%s: tower model %s L%d" % [label, type, lv + 1])
+	check(_vert_count(Models.tower_base(&"archer", 2)) > _vert_count(Models.tower_base(&"archer", 0)), "%s: higher levels add detail" % label)
+	check(Models.enemy(&"raider") == Models.enemy(&"raider"), "%s: models are cached" % label)
+
+
+func test_models_build() -> void:
+	_check_models("assets")
+	Models.clear_cache()
+	Models.use_assets = false
+	_check_models("procedural")
+	check(Models.enemy(&"raider").surface_get_material(0) == MeshKit.material(), "fallback uses the vertex-colour material")
+	check(Models.fortress_model() == null, "no generated fortress without assets")
+	near(Models.head_mount(&"archer", 1, 4.0), 4.0, "fallback head mount is the data pivot")
+	Models.use_assets = true
 	Models.clear_cache()
 	MeshKit.clear_cache()
+
+
+# ---------------------------------------------------------------- generated assets
+const ASSET_NAMES: Array[String] = ["raider", "rider", "shield", "ram", "fortress", "boat", "tower-archer", "tower-cannon", "tower-tar", "head-archer", "head-cannon", "head-tar"]
+
+
+func test_assets_normalised() -> void:
+	for n: String in ASSET_NAMES:
+		var a: Dictionary = Models.asset(n)
+		check(not a.is_empty(), "%s.glb loads" % n)
+		if a.is_empty():
+			continue
+		var sz: Vector3 = a["size"]
+		near(maxf(sz.x, maxf(sz.y, sz.z)), 1.0, "%s is a unit model" % n, 0.01)
+		var lo := Vector3(INF, INF, INF)
+		var hi := -lo
+		for v: Vector3 in (a["pos"] as PackedVector3Array):
+			lo = lo.min(v)
+			hi = hi.max(v)
+		near(lo.y, 0.0, "%s base at y = 0" % n)
+		near(lo.x + hi.x, 0.0, "%s centred in x" % n)
+		near(lo.z + hi.z, 0.0, "%s centred in z" % n)
+		check((a["mat"] as StandardMaterial3D).albedo_texture != null, "%s has its texture" % n)
+		check((a["mat"] as StandardMaterial3D).vertex_color_use_as_albedo, "%s takes instance tints" % n)
+	Models.clear_cache()
+
+
+func test_assets_fit_the_game() -> void:
+	for type: StringName in GameData.TOWER_ORDER:
+		var fit: Dictionary = Models.TOWER_FIT[type]
+		for lv: int in range(3):
+			var base: ArrayMesh = Models.tower_base(type, lv)
+			# the first surface is the textured tower; its height is the fitted height
+			var verts: PackedVector3Array = base.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+			var top: float = 0.0
+			for v: Vector3 in verts:
+				top = maxf(top, v.y)
+			near(top, float(fit["h"][lv]), "%s L%d height" % [type, lv + 1], 0.01)
+			check(base.get_surface_count() == (1 if lv == 0 else 2), "%s L%d trims (pennant, gold band)" % [type, lv + 1])
+			near(Models.head_mount(type, lv, -1.0), float(fit["h"][lv]) * float(fit["floor"]), "%s L%d head mount" % [type, lv + 1])
+			var head: Vector3 = Models.tower_head(type, lv).get_aabb().size
+			near(maxf(head.x, maxf(head.y, head.z)), float(Models.HEAD_SIZE[type]) * (1.0 + 0.07 * float(lv)), "%s L%d head size" % [type, lv + 1], 0.01)
+	near(Models.head_mount(&"archer", 0, -1.0), 2.45, "archer platform at 49 %")
+	for type: StringName in GameData.ENEMY_ORDER:
+		var proc: Vector3 = Models._enemy(type).get_aabb().size
+		var glb: Vector3 = Models.enemy(type).get_aabb().size
+		check(glb.y <= proc.y + 0.001 and glb.z <= proc.z * 1.15 + 0.001, "%s keeps the procedural size" % type)
+		check(glb.y >= proc.y * 0.85, "%s is about as tall as before" % type)
+	var boat: Vector3 = Models.boat().get_aabb().size
+	near(maxf(boat.x, maxf(boat.y, boat.z)), 3.6, "boat as tall as the old mast", 0.01)
+	var fort: AABB = Models.fortress_model().get_aabb()
+	near(Models.fortress_origin().x + fort.position.x, 24.7, "fortress gate wall on x = 25", 0.01)
+	near(fort.size.z, Models.FORTRESS_SCALE, "fortress at its scale", 0.05)
+	# the sim keeps its own muzzle height, so tests and balance do not depend on the art
+	var d: GameData = GameData.load_default()
+	near(d.tower(&"archer").stat(d.tower(&"archer").pivot, 0), 3.2, "data pivot unchanged")
+	Models.clear_cache()
+	MeshKit.clear_cache()
+
+
+func test_icons_and_logo() -> void:
+	for k: String in Icon.PNG:
+		check(Icon.texture(k) != null, "icon %s has a picture" % k)
+	check(Icon.texture("pause") == null and Icon.texture("gear") == null, "drawn icons stay vector")
+	Icon.use_png = false
+	check(Icon.texture("gold") == null, "--noassets draws every icon")
+	Icon.use_png = true
+	check(ResourceLoader.exists("res://assets/ui/logo.png"), "crest logo")
+	check(String(ProjectSettings.get_setting("application/config/icon")) == "res://assets/ui/logo.png", "crest is the project icon")
+	Icon.clear_cache()
 
 
 func test_mesh_kit_faces_up() -> void:
@@ -363,6 +450,46 @@ func test_mesh_kit_faces_up() -> void:
 			outward = false
 	check(verts.size() == 36 and outward, "box faces point outward")
 	MeshKit.clear_cache()
+
+
+# ---------------------------------------------------------------- input, settings, records
+func _keys(action: StringName) -> Array[int]:
+	var out: Array[int] = []
+	for e: InputEvent in InputMap.action_get_events(action):
+		if e is InputEventKey:
+			out.append(int((e as InputEventKey).physical_keycode))
+	return out
+
+
+func test_input_map_keys() -> void:
+	check(_keys(&"pause") == [KEY_P], "P pauses (and only P)")
+	check(_keys(&"back") == [KEY_ESCAPE], "Esc goes back")
+	check(_keys(&"toggle_music") == [KEY_M] and _keys(&"toggle_sfx") == [KEY_X], "M music, X sound")
+	check(_keys(&"sell") == [KEY_S] and _keys(&"speed_toggle") == [KEY_F], "S sell and F speed kept")
+	check(not InputMap.has_action(&"pause_menu"), "old shared pause/back action removed")
+
+
+func test_mute_restores_volume() -> void:
+	var before: float = Settings.master_volume
+	Settings.set_value(&"master_volume", 0.55)
+	Settings.toggle_mute()
+	near(Settings.master_volume, 0.0, "muted")
+	Settings.toggle_mute()
+	near(Settings.master_volume, 0.55, "unmute brings back the old volume")
+	Settings.set_value(&"music_muted", true)
+	check(Settings.music_muted, "music switched off")
+	Settings.set_value(&"music_muted", false)
+	Settings.set_value(&"master_volume", before)
+
+
+func test_best_wave_recorded_per_wave() -> void:
+	var before: int = GameState.best_wave
+	GameState.best_wave = 3
+	check(GameState.record_wave(4), "wave 4 beats 3")
+	check(not GameState.record_wave(4), "same wave is not a new record")
+	check(not GameState.record_wave(2), "lower wave is not a record")
+	check(GameState.best_wave == 4, "best kept")
+	GameState.best_wave = before
 
 
 func test_ui_number_format() -> void:

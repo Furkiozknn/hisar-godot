@@ -1,8 +1,20 @@
 class_name Icon
 extends Control
-## Tiny vector pictograms drawn with _draw, so the UI needs no emoji font (they are missing
-## on the web). kind: gold, lives, wave, pause, play, speed, sound, mute, close, trophy,
-## fire, gear, target, archer, cannon, tar, raider, rider, shield, ram.
+## UI pictograms: the painted PNG icons from res://assets/ui/icons (shared with the browser
+## version) where one exists, otherwise a small vector drawing, so the UI never needs an
+## emoji font. kind: gold, lives, wave, pause, play, speed, sound, mute, close, trophy,
+## fire, gear, target, upgrade, fortress, archer, cannon, tar, raider, rider, shield, ram.
+
+## Icon kinds with a painted PNG (kind -> file name).
+const PNG: Dictionary = {
+	"gold": "gold", "lives": "lives", "wave": "wave", "archer": "archer", "cannon": "cannon", "tar": "tar",
+	"raider": "raider", "rider": "rider", "shield": "shield", "ram": "ram", "upgrade": "upgrade",
+	"target": "target", "trophy": "trophy", "sound": "sound-on", "mute": "sound-off", "fortress": "fortress",
+}
+
+## False with --noassets: always draw the vector versions.
+static var use_png: bool = true
+static var _tex: Dictionary = {}
 
 var kind: String = "gold":
 	set(v):
@@ -16,12 +28,31 @@ static func make(k: String, px: float = 20.0) -> Icon:
 	i.kind = k
 	i.custom_minimum_size = Vector2(px, px)
 	i.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	i.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	return i
+
+
+static func clear_cache() -> void:
+	_tex.clear()
+
+
+## The painted texture for a kind, or null.
+static func texture(k: String) -> Texture2D:
+	if not use_png or not PNG.has(k):
+		return null
+	if not _tex.has(k):
+		var path: String = "res://assets/ui/icons/%s.png" % PNG[k]
+		_tex[k] = load(path) as Texture2D if ResourceLoader.exists(path) else null
+	return _tex[k] as Texture2D
 
 
 func _draw() -> void:
 	var s: float = minf(size.x, size.y)
 	var o := Vector2((size.x - s) / 2.0, (size.y - s) / 2.0)
+	var tex: Texture2D = texture(kind)
+	if tex != null:
+		draw_texture_rect(tex, Rect2(o, Vector2(s, s)), false)
+		return
 	var c := func(x: float, y: float) -> Vector2: return o + Vector2(x, y) * s
 	match kind:
 		"gold":
@@ -116,5 +147,14 @@ func _draw() -> void:
 			draw_line(c.call(0.6, 0.6), c.call(0.96, 0.6), Color(0.49, 0.51, 0.53), s * 0.1)
 			draw_circle(c.call(0.24, 0.8), s * 0.1, Color(0.23, 0.16, 0.1))
 			draw_circle(c.call(0.66, 0.8), s * 0.1, Color(0.23, 0.16, 0.1))
+		"upgrade":
+			var g := Color(0.96, 0.62, 0.04)
+			draw_colored_polygon(PackedVector2Array([c.call(0.5, 0.1), c.call(0.86, 0.5), c.call(0.62, 0.5), c.call(0.62, 0.88), c.call(0.38, 0.88), c.call(0.38, 0.5), c.call(0.14, 0.5)]), g)
+		"fortress":
+			var st := Color(0.81, 0.77, 0.68)
+			draw_rect(Rect2(c.call(0.18, 0.42), Vector2(s * 0.64, s * 0.48)), st)
+			for x: float in [0.18, 0.43, 0.68]:
+				draw_rect(Rect2(c.call(x, 0.3), Vector2(s * 0.14, s * 0.14)), st)
+			draw_rect(Rect2(c.call(0.42, 0.64), Vector2(s * 0.16, s * 0.26)), Color(0.23, 0.16, 0.1))
 		_:
 			draw_circle(c.call(0.5, 0.5), s * 0.3, tint)

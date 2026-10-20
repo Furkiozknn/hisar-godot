@@ -7,7 +7,6 @@ script = ExtResource("1_453o2")
 id = &"archer"
 name_key = "archerName"
 desc_key = "archerDesc"
-icon_color = Color(0.18431373, 0.37254903, 0.5411765, 1)
 cost = PackedInt32Array(60, 90, 140)
 reach = PackedFloat32Array(9, 10, 11)
 rate = PackedFloat32Array(0.75, 0.6, 0.45)

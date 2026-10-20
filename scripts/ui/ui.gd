@@ -16,8 +16,9 @@ const DANGER: Color = Color(0.86, 0.15, 0.15)
 var sim: BattleSim = null
 var screen: String = ""
 var compact: bool = false
-var speed: int = 1
 var selected_pad: int = -1
+## Touch screen (or --touch): buttons grow to at least 44 px on screen.
+var touch: bool = false
 
 var root: Control
 var _hud: Control
@@ -50,6 +51,9 @@ var _dim: ColorRect
 var _card: PanelContainer
 var _card_body: VBoxContainer
 var _focus_first: Control = null
+var _kills_lbl: Label = null
+var _kills_tower: BattleSim.Tower = null
+var _hud_buttons: Array[Button] = []
 var _card_inner: float = 480.0
 
 var _last_gold: int = -1
@@ -127,6 +131,12 @@ func _make_theme() -> Theme:
 	t.set_stylebox("panel", "Chip", _box(Color(1, 1, 1, 0.58), 10))
 	t.set_type_variation("DarkToast", "PanelContainer")
 	t.set_stylebox("panel", "DarkToast", _box(Color(0.17, 0.13, 0.09, 0.86), 10, Color(0, 0, 0, 0), 0, 8))
+	# good / bad toasts: the same dark pill with a green or red left edge
+	for v: Array in [["ToastGood", OK], ["ToastBad", DANGER]]:
+		var tb: StyleBoxFlat = _box(Color(0.17, 0.13, 0.09, 0.86), 10, v[1] as Color, 0, 8)
+		tb.border_width_left = 5
+		t.set_type_variation(String(v[0]), "PanelContainer")
+		t.set_stylebox("panel", String(v[0]), tb)
 	# sliders and bars
 	var track := _box(Color(0.31, 0.22, 0.12, 0.18), 6)
 	track.content_margin_top = 4
@@ -152,6 +162,7 @@ func _ready() -> void:
 	root.theme = _make_theme()
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
+	touch = DisplayServer.is_touchscreen_available() or OS.get_cmdline_user_args().has("--touch")
 	_build_vignette()
 	_build_hud()
 	_build_overlay()
@@ -187,21 +198,29 @@ func _label(text: String, size: int = 16, bold: bool = false, col: Color = INK) 
 	return l
 
 
-func _button(text: String, act: StringName, arg: Variant = null, primary: bool = false, icon_kind: String = "") -> Button:
+func _button(text: String, act: StringName, arg: Variant = null, primary: bool = false, icon_kind: String = "", font_size: int = 16) -> Button:
 	var b := Button.new()
 	b.text = text
 	b.focus_mode = Control.FOCUS_ALL
 	if primary:
 		b.theme_type_variation = "Primary"
+	if font_size != 16:
+		b.add_theme_font_size_override("font_size", font_size)
 	if icon_kind != "":
-		var ic: Icon = Icon.make(icon_kind, 18)
-		b.add_child(ic)
-		ic.position = Vector2(10, 0)
-		b.alignment = HORIZONTAL_ALIGNMENT_CENTER
-		b.resized.connect(func() -> void: ic.position = Vector2(10, (b.size.y - 18.0) / 2.0))
-		b.add_theme_constant_override("h_separation", 6)
+		# icon + label centred in a box inside the button (the button's own text stays empty)
+		var hb := HBoxContainer.new()
+		hb.alignment = BoxContainer.ALIGNMENT_CENTER
+		hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		hb.set_anchors_preset(Control.PRESET_FULL_RECT)
+		hb.add_theme_constant_override("separation", 8)
+		hb.add_child(_centered_v(Icon.make(icon_kind, 20)))
 		if text != "":
-			b.text = "      " + text
+			var l: Label = _label(text, font_size, true, Color(0.23, 0.14, 0.02) if primary else INK)
+			hb.add_child(_centered_v(l))
+			b.text = ""
+			b.set_meta("label", l)
+		b.add_child(hb)
+		_fit_content.call_deferred(b, hb)
 	b.pressed.connect(func() -> void:
 		Sound.play("click")
 		action.emit(act, arg))
@@ -211,6 +230,22 @@ func _button(text: String, act: StringName, arg: Variant = null, primary: bool =
 		tw.tween_property(b, "scale", Vector2(0.95, 0.95), 0.05)
 		tw.tween_property(b, "scale", Vector2.ONE, 0.12).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT))
 	return b
+
+
+func _centered_v(c: Control) -> Control:
+	c.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	return c
+
+
+## Buttons with an icon box are at least as wide as their content.
+func _fit_content(b: Button, content: Control) -> void:
+	if is_instance_valid(b):
+		b.custom_minimum_size.x = maxf(b.custom_minimum_size.x, content.get_combined_minimum_size().x + 24.0)
+
+
+## Minimum button height: 44 px on screen on touch devices.
+func _tap(h: float) -> float:
+	return maxf(h, 44.0 / _scale) if touch else h
 
 
 func _icon_button(kind: String, act: StringName, tip: String = "") -> Button:
@@ -249,7 +284,11 @@ func _build_hud() -> void:
 	_stats_panel.name = "Stats"
 	var sh := HBoxContainer.new()
 	sh.add_theme_constant_override("separation", 8)
+	var crest: TextureRect = _crest(30.0)
+	if crest != null:
+		sh.add_child(crest)
 	var logo: Label = _label("Hisar", 21, true)
+	logo.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	sh.add_child(logo)
 	_logo_sub = _label("", 13, false, Color(INK, 0.65))
 	_logo_sub.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -275,10 +314,12 @@ func _build_hud() -> void:
 	_speed_btn.custom_minimum_size = Vector2(44, 36)
 	_speed_btn.tooltip_text = "F"
 	_pause_btn = _icon_button("pause", &"pause", "P / Esc")
-	_sound_btn = _icon_button("sound", &"mute")
+	_sound_btn = _icon_button("sound", &"mute", "X")
 	_lang_btn = _button("EN", &"lang")
+	_lang_btn.tooltip_text = "L"
 	_lang_btn.custom_minimum_size = Vector2(44, 36)
-	for b: Button in [_speed_btn, _pause_btn, _sound_btn, _lang_btn]:
+	_hud_buttons = [_speed_btn, _pause_btn, _sound_btn, _lang_btn]
+	for b: Button in _hud_buttons:
 		b.focus_mode = Control.FOCUS_NONE
 		bh.add_child(b)
 	_btn_panel.add_child(bh)
@@ -373,8 +414,14 @@ func _on_resize() -> void:
 		_scale = clampf(minf(s.x / 1150.0, s.y / 680.0), 0.6, 2.5)
 	else:
 		_scale = clampf(s.x / 430.0, 0.6, 2.5)
+	var rescaled: bool = not is_equal_approx(scale.x, _scale)
 	scale = Vector2(_scale, _scale)
 	var v: Vector2 = s / _scale
+	for b: Button in _hud_buttons:
+		b.custom_minimum_size.y = _tap(36.0)
+	if touch and rescaled and _panel.visible:
+		_panel_key = ""
+		_refresh_panel.call_deferred()
 	root.position = Vector2.ZERO
 	root.size = v
 	compact = v.x < 760.0
@@ -398,16 +445,17 @@ func _layout(v: Vector2) -> void:
 	_boss.reset_size()
 	_boss.position = Vector2((v.x - _boss.size.x) / 2.0, top_bottom + (54.0 if compact else 10.0))
 	_wave_box_inner.vertical = not compact
+	_wave_btn.custom_minimum_size.y = _tap(44.0)
 	_next_lbl.visible = not compact
 	_wavebox.reset_size()
 	if compact:
-		_wave_btn.custom_minimum_size = Vector2(170, 44)
+		_wave_btn.custom_minimum_size.x = 170.0
 		_wavebox.size = Vector2(v.x - 2.0 * m, 0)
 		_wavebox.reset_size()
 		_wavebox.size.x = v.x - 2.0 * m
 		_wavebox.position = Vector2(m, v.y - m - _wavebox.size.y)
 	else:
-		_wave_btn.custom_minimum_size = Vector2(0, 44)
+		_wave_btn.custom_minimum_size.x = 0.0
 		_wavebox.size = Vector2(260, 0)
 		_wavebox.reset_size()
 		_wavebox.size.x = 260
@@ -420,12 +468,16 @@ func _layout_panel(v: Vector2) -> void:
 	if not _panel.visible:
 		return
 	var m: float = 10.0
-	var w: float = v.x - 2.0 * m if compact else minf(580.0, v.x - 300.0)
+	var w: float = v.x - 2.0 * m if compact else minf(580.0, v.x - 2.0 * 270.0)
+	# narrow landscape: no room for a centred panel beside the 260 px wave box, so align it left
+	var left: bool = not compact and w < 420.0
+	if left:
+		w = minf(580.0, v.x - 270.0 - 2.0 * m)
 	_panel.size = Vector2(w, 0)
 	_panel.reset_size()
 	_panel.size.x = w
 	var bottom: float = (_wavebox.position.y - 8.0) if compact else (v.y - m)
-	_panel.position = Vector2((v.x - w) / 2.0 if not compact else m, bottom - _panel.size.y)
+	_panel.position = Vector2(m if compact or left else (v.x - w) / 2.0, bottom - _panel.size.y)
 
 
 func _layout_card(v: Vector2) -> void:
@@ -487,6 +539,10 @@ func _process(delta: float) -> void:
 	_wavebox.visible = not sim.over
 	if b != null:
 		_boss_bar.value = lerpf(_boss_bar.value, b.hp / b.max_hp, 1.0 - exp(-delta * 10.0))
+	if _kills_tower != null and is_instance_valid(_kills_lbl):
+		var kt: String = str(_kills_tower.kills)
+		if _kills_lbl.text != kt:
+			_kills_lbl.text = kt
 	if _vig > 0.0:
 		_vig = maxf(0.0, _vig - delta * 1.4)
 		_vig_mat.set_shader_parameter("strength", _vig)
@@ -513,6 +569,8 @@ func _update_wave_button() -> void:
 		txt = Loc.t("waveRunning", {"n": sim.wave})
 	elif can:
 		txt = Loc.t("callEarly" if sim.phase == &"wave" else "startWave", {"n": sim.wave + 1})
+	elif sim.phase == &"wave" and not sim.over:
+		txt = Loc.t("waveRunning", {"n": sim.wave})
 	else:
 		txt = "-"
 	if _wave_btn.text != txt:
@@ -558,9 +616,10 @@ func clear_toasts() -> void:
 	_clear(_toasts)
 
 
-func toast(msg: String) -> void:
+## kind: "info" (neutral), "good" (green edge) or "bad" (red edge).
+func toast(msg: String, kind: String = "info") -> void:
 	var p := PanelContainer.new()
-	p.theme_type_variation = "DarkToast"
+	p.theme_type_variation = {"good": "ToastGood", "bad": "ToastBad"}.get(kind, "DarkToast")
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	p.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	var l: Label = _label(msg, 15, true, Color(1.0, 0.97, 0.9))
@@ -588,6 +647,8 @@ func open_pad(pad: int) -> void:
 
 func close_panel() -> void:
 	selected_pad = -1
+	_kills_lbl = null
+	_kills_tower = null
 	_panel_key = ""
 	_panel.visible = false
 
@@ -652,7 +713,7 @@ func _header(text: String, icon_kind: String, level: int = -1) -> HBoxContainer:
 	sp.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	h.add_child(sp)
 	var x: Button = _icon_button("close", &"close_panel", "Esc")
-	x.custom_minimum_size = Vector2(32, 30)
+	x.custom_minimum_size = Vector2(_tap(32.0), _tap(30.0))
 	x.focus_mode = Control.FOCUS_NONE
 	h.add_child(x)
 	return h
@@ -672,7 +733,7 @@ func _fill_build() -> void:
 		b.focus_mode = Control.FOCUS_NONE
 		b.set_meta("cost", td.cost[0])
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.custom_minimum_size = Vector2(0, 58 if compact else 118)
+		b.custom_minimum_size = Vector2(0, _tap(58.0) if compact else 118.0)
 		b.tooltip_text = "%s (%d)" % [Loc.t(td.name_key), i]
 		var mc := MarginContainer.new()
 		mc.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -766,7 +827,9 @@ func _fill_tower(t: BattleSim.Tower) -> void:
 	var ksp := Control.new()
 	ksp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	kh.add_child(ksp)
-	kh.add_child(_label(str(t.kills), 13, true))
+	_kills_lbl = _label(str(t.kills), 13, true)
+	_kills_tower = t
+	kh.add_child(_kills_lbl)
 	kh.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	grid.add_child(kh)
 	box.add_child(grid)
@@ -775,22 +838,29 @@ func _fill_tower(t: BattleSim.Tower) -> void:
 	btns.add_theme_constant_override("separation", 6)
 	btns.custom_minimum_size = Vector2(0 if compact else 170, 0)
 	var up_cost: int = sim.upgrade_cost(t)
-	var up: Button = _button(Loc.t("maxed") if up_cost < 0 else "%s  %d" % [Loc.t("upgrade"), up_cost], &"upgrade", null, true)
+	var up: Button = _button(Loc.t("maxed") if up_cost < 0 else "%s  %d" % [Loc.t("upgrade"), up_cost], &"upgrade", null, true, "upgrade")
 	up.tooltip_text = "U"
 	up.set_meta("cost", up_cost)
-	up.disabled = up_cost < 0
+	_set_disabled(up, up_cost < 0)
 	var mode_key: String = {&"first": "mFirst", &"strong": "mStrong", &"near": "mNear"}[t.mode]
-	var mode: Button = _button("%s: %s" % [Loc.t("target"), Loc.t(mode_key)], &"mode")
+	var mode: Button = _button("%s: %s" % [Loc.t("target"), Loc.t(mode_key)], &"mode", null, false, "target")
 	mode.tooltip_text = "T"
 	var sell: Button = _button("%s  +%d" % [Loc.t("sell"), sim.refund(t)], &"sell")
 	sell.tooltip_text = "S"
 	for b: Button in [up, mode, sell]:
 		b.focus_mode = Control.FOCUS_NONE
-		b.custom_minimum_size = Vector2(0, 34)
+		b.custom_minimum_size = Vector2(0, _tap(34.0))
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		btns.add_child(b)
 	box.add_child(btns)
 	_panel_body.add_child(box)
+
+
+## Disables a button and dims the label inside an icon button with it.
+func _set_disabled(b: Button, off: bool) -> void:
+	b.disabled = off
+	if b.has_meta("label"):
+		(b.get_meta("label") as Label).modulate.a = 0.45 if off else 1.0
 
 
 func _update_affordability() -> void:
@@ -801,13 +871,17 @@ func _update_affordability() -> void:
 		var n: Node = stack.pop_back()
 		if n is Button and n.has_meta("cost"):
 			var c: int = int(n.get_meta("cost"))
-			(n as Button).disabled = c < 0 or sim.gold < c or sim.over
+			_set_disabled(n as Button, c < 0 or sim.gold < c or sim.over)
 		stack.append_array(n.get_children())
 
 
 # ---------------------------------------------------------------- overlay screens
 func show_screen(name_id: String, data: Dictionary = {}) -> void:
 	var was: bool = _overlay.visible
+	# re-showing the same card (a setting changed): keep the focused control, skip the pop-in
+	var same: bool = was and name_id == screen
+	var focused: Control = get_viewport().gui_get_focus_owner()
+	var focus_name: String = String(focused.name) if same and focused != null and _card.is_ancestor_of(focused) else ""
 	screen = name_id
 	_card_inner = minf(540.0, root.size.x - 32.0) - 52.0
 	_clear(_card_body)
@@ -823,8 +897,15 @@ func show_screen(name_id: String, data: Dictionary = {}) -> void:
 			_fill_over(data)
 	_overlay.visible = true
 	_layout_card(root.size)
+	if focus_name != "":
+		var keep: Node = _card_body.find_child(focus_name, true, false)
+		if keep is Control:
+			_focus_first = keep
 	if _focus_first != null:
 		_grab_later.call_deferred(_focus_first)
+	if same:
+		_card.scale = Vector2.ONE
+		return
 	var tw: Tween = _card.create_tween().set_parallel(true)
 	if not was:
 		_overlay.modulate = Color(1, 1, 1, 0)
@@ -875,7 +956,28 @@ func _row() -> HFlowContainer:
 	return r
 
 
+## The crest logo as a TextureRect of px size, or null when the image is missing.
+func _crest(px: float) -> TextureRect:
+	var path: String = "res://assets/ui/logo.png"
+	if not Icon.use_png or not ResourceLoader.exists(path):
+		return null
+	var tr := TextureRect.new()
+	tr.name = "Crest"
+	tr.texture = load(path) as Texture2D
+	tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	tr.custom_minimum_size = Vector2(px, px)
+	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tr.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	tr.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	tr.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	return tr
+
+
 func _fill_title(data: Dictionary) -> void:
+	var crest: TextureRect = _crest(104.0 if compact else 132.0)
+	if crest != null:
+		_card_body.add_child(crest)
 	var title: Label = _label("Hisar", 64 if not compact else 52, true)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_color_override("font_outline_color", Color(1, 0.9, 0.7))
@@ -886,27 +988,29 @@ func _fill_title(data: Dictionary) -> void:
 	_card_body.add_child(sub)
 	_card_body.add_child(_para(Loc.t("intro")))
 	var r: HFlowContainer = _row()
-	var play: Button = _button(Loc.t("play"), &"play", null, true, "play")
+	var play: Button = _button(Loc.t("play"), &"play", null, true, "play", 19)
+	play.name = "Play"
 	play.custom_minimum_size = Vector2(150, 50)
-	play.add_theme_font_size_override("font_size", 19)
 	r.add_child(play)
 	_focus_first = play
 	var cont: int = int(data.get("continue_wave", 0))
 	if cont > 0:
 		var cb: Button = _button(Loc.t("continue", {"n": cont + 1}), &"continue")
+		cb.name = "Continue"
 		cb.custom_minimum_size = Vector2(0, 50)
 		r.add_child(cb)
 	_card_body.add_child(r)
 	var r2: HFlowContainer = _row()
 	var sb: Button = _button(Loc.t("settings"), &"open_settings", null, false, "gear")
-	sb.custom_minimum_size = Vector2(0, 38)
+	sb.custom_minimum_size = Vector2(0, _tap(38.0))
 	r2.add_child(sb)
 	var lb: Button = _button("English" if Settings.language == "tr" else "Türkçe", &"lang")
-	lb.custom_minimum_size = Vector2(110, 38)
+	lb.name = "Lang"
+	lb.custom_minimum_size = Vector2(110, _tap(38.0))
 	r2.add_child(lb)
 	_card_body.add_child(r2)
-	var touch: bool = DisplayServer.is_touchscreen_available() and compact
-	_card_body.add_child(_para(Loc.t("controlsTouch" if touch else "controls"), 12, Color(INK, 0.72)))
+	var touch_hint: bool = touch and compact
+	_card_body.add_child(_para(Loc.t("controlsTouch" if touch_hint else "controls"), 12, Color(INK, 0.72)))
 	var best: int = int(data.get("best", 0))
 	if best > 0:
 		var bh := HBoxContainer.new()
@@ -915,6 +1019,7 @@ func _fill_title(data: Dictionary) -> void:
 		bh.add_child(_label(Loc.t("best", {"n": best}), 13, true, Color(INK, 0.75)))
 		_card_body.add_child(bh)
 	_card_body.add_child(_para(Loc.t("credits"), 11, Color(INK, 0.5)))
+	_card_body.add_child(_para(Loc.t("footer"), 11, Color(INK, 0.55)))
 
 
 func _fill_pause() -> void:
@@ -926,7 +1031,7 @@ func _fill_pause() -> void:
 	var resume: Button = _button(Loc.t("resume"), &"resume", null, true, "play")
 	_focus_first = resume
 	for b: Button in [resume, _button(Loc.t("settings"), &"open_settings", null, false, "gear"), _button(Loc.t("restart"), &"restart"), _button(Loc.t("mainMenu"), &"main_menu")]:
-		b.custom_minimum_size = Vector2(260, 42)
+		b.custom_minimum_size = Vector2(260, _tap(42.0))
 		v.add_child(b)
 	_card_body.add_child(_centered(v))
 
@@ -948,9 +1053,16 @@ func _slider_row(key: String, setting: StringName, value: float) -> Control:
 	var pct: Label = _label("%d%%" % roundi(value * 100.0), 14, true)
 	pct.custom_minimum_size = Vector2(46, 0)
 	pct.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	s.name = "Slider_" + key
+	# apply live; write the file and play the sample once a drag ends (keys and pad: every step)
 	s.value_changed.connect(func(x: float) -> void:
 		pct.text = "%d%%" % roundi(x * 100.0)
-		Settings.set_value(setting, x)
+		var dragging: bool = Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+		Settings.set_value(setting, x, not dragging)
+		if setting == &"sfx_volume" and not dragging:
+			Sound.play("coin"))
+	s.drag_ended.connect(func(_changed: bool) -> void:
+		Settings.save_settings()
 		if setting == &"sfx_volume":
 			Sound.play("coin"))
 	h.add_child(s)
@@ -970,7 +1082,8 @@ func _choice_row(key: String, options: Array, current: String, setting: StringNa
 	for o: Array in options:
 		var val: String = o[0]
 		var b: Button = _button(String(o[1]), &"setting", [setting, val], val == current)
-		b.custom_minimum_size = Vector2(92, 36)
+		b.name = "Opt_%s_%s" % [setting, val]
+		b.custom_minimum_size = Vector2(92, _tap(36.0))
 		h.add_child(b)
 	return h
 
@@ -986,7 +1099,8 @@ func _fill_settings() -> void:
 	_card_body.add_child(_choice_row("quality", [["low", Loc.t("qLow")], ["high", Loc.t("qHigh")]], Settings.quality, &"quality"))
 	_card_body.add_child(_choice_row("fullscreen", [["off", Loc.t("off")], ["on", Loc.t("on")]], "on" if Settings.fullscreen else "off", &"fullscreen"))
 	var back: Button = _button(Loc.t("back"), &"settings_back", null, true)
-	back.custom_minimum_size = Vector2(200, 42)
+	back.name = "Back"
+	back.custom_minimum_size = Vector2(200, _tap(42.0))
 	_card_body.add_child(_centered(back))
 
 
@@ -995,7 +1109,7 @@ func _fill_over(data: Dictionary) -> void:
 	var hh := HBoxContainer.new()
 	hh.alignment = BoxContainer.ALIGNMENT_CENTER
 	hh.add_theme_constant_override("separation", 10)
-	hh.add_child(Icon.make("trophy" if won else "fire", 40))
+	hh.add_child(Icon.make("trophy" if won else "fortress", 44))
 	hh.add_child(_label(Loc.t("winTitle" if won else "lostTitle"), 40 if not compact else 32, true))
 	_card_body.add_child(hh)
 	_card_body.add_child(_para(Loc.t("winText") if won else Loc.t("lostText", {"n": int(data.get("wave", 0))})))
@@ -1027,7 +1141,7 @@ func _fill_over(data: Dictionary) -> void:
 	_card_body.add_child(grid)
 	var r: HFlowContainer = _row()
 	var again: Button = _button(Loc.t("again"), &"restart", null, true)
-	again.custom_minimum_size = Vector2(160, 46)
+	again.custom_minimum_size = Vector2(160, _tap(46.0))
 	_focus_first = again
 	r.add_child(again)
 	if won:
@@ -1042,7 +1156,6 @@ func _fill_over(data: Dictionary) -> void:
 
 # ---------------------------------------------------------------- texts
 func set_speed(s: int) -> void:
-	speed = s
 	_speed_btn.text = "%dx" % s
 
 
@@ -1056,6 +1169,8 @@ func _refresh_sound_btn() -> void:
 
 func _retext() -> void:
 	_logo_sub.text = Loc.t("sub")
+	if DisplayServer.get_name() != "headless":
+		get_window().title = "Hisar · " + Loc.t("sub") + (" (auto)" if GameState.auto else "")
 	_lang_btn.text = "EN" if Settings.language == "tr" else "TR"
 	_boss_lbl.text = Loc.t("bossLabel")
 	_gold_chip.tooltip_text = Loc.t("gold")

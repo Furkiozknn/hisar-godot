@@ -9,7 +9,6 @@ const SAVE_PATH: String = "user://hisar_save.cfg"
 var screen: String = "title"
 var sim: BattleSim = null
 var best_wave: int = 0
-var games_played: int = 0
 
 # command-line flags (pass after "--": godot --path . -- --auto --sim=300)
 var auto: bool = false
@@ -38,6 +37,10 @@ func _ready() -> void:
 			quit_on_end = true
 		elif a == "--no-save":
 			persist = false
+		elif a == "--noassets":
+			# the procedural models and vector icons, as before the asset remaster
+			Models.use_assets = false
+			Icon.use_png = false
 	if auto:
 		persist = false
 	load_save()
@@ -50,7 +53,6 @@ func load_save() -> void:
 	if cfg.load(SAVE_PATH) != OK:
 		return
 	best_wave = int(cfg.get_value("stats", "best_wave", 0))
-	games_played = int(cfg.get_value("stats", "games_played", 0))
 
 
 func _write(run: Variant) -> void:
@@ -59,7 +61,8 @@ func _write(run: Variant) -> void:
 	var cfg := ConfigFile.new()
 	cfg.load(SAVE_PATH)
 	cfg.set_value("stats", "best_wave", best_wave)
-	cfg.set_value("stats", "games_played", games_played)
+	if cfg.has_section_key("stats", "games_played"):
+		cfg.erase_section_key("stats", "games_played")
 	if run == null:
 		if cfg.has_section("run"):
 			cfg.erase_section("run")
@@ -68,7 +71,7 @@ func _write(run: Variant) -> void:
 	cfg.save(SAVE_PATH)
 
 
-## Returns true when this is a new record.
+## Returns true when this is a new record. Called after every cleared wave and at the end.
 func record_wave(w: int) -> bool:
 	if w > best_wave:
 		best_wave = w
@@ -95,11 +98,6 @@ func saved_run() -> Variant:
 	if snap is Dictionary and int((snap as Dictionary).get("version", 0)) == 1:
 		return snap
 	return null
-
-
-func count_game() -> void:
-	games_played += 1
-	_write(saved_run())
 
 
 ## Current state as JSON (screen, wave, gold, lives, towers, enemies...).

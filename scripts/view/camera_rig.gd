@@ -15,7 +15,8 @@ var yaw: float = -0.08
 var pitch: float = 0.8
 var dist: float = 74.0
 var cinematic: bool = false
-var input_enabled: bool = true
+## True once two fingers were down during the current touch, until the next first finger.
+var gesture_seen: bool = false
 
 var _t_target: Vector3 = target
 var _t_yaw: float = yaw
@@ -95,12 +96,16 @@ func shake(amount: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not input_enabled or cinematic:
+	if cinematic:
 		return
 	if event is InputEventScreenTouch:
 		var st: InputEventScreenTouch = event
 		if st.pressed:
+			if _touches.is_empty():
+				gesture_seen = false
 			_touches[st.index] = st.position
+			if _touches.size() >= 2:
+				gesture_seen = true
 		else:
 			_touches.erase(st.index)
 		_pinch_dist = 0.0
@@ -150,7 +155,7 @@ func _process(delta: float) -> void:
 		_t_pitch = 0.78 + sin(_cine_t * 0.2) * 0.06
 		_t_dist = 82.0
 		_t_target = Vector3(0, 0, 0)
-	elif input_enabled:
+	else:
 		var mv := Vector2(Input.get_axis("cam_left", "cam_right"), Input.get_axis("cam_forward", "cam_back"))
 		if mv.length_squared() > 0.0:
 			_pan(mv * delta * dist * 0.9)

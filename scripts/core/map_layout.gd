@@ -7,7 +7,6 @@ const ROAD_A: Array[Vector2] = [Vector2(-48, -20), Vector2(-37, -21), Vector2(-2
 const ROAD_B: Array[Vector2] = [Vector2(-48, 22), Vector2(-37, 23), Vector2(-28, 17), Vector2(-20, 10), Vector2(-10, 14), Vector2(-1, 16), Vector2(6, 9), Vector2(10, 0)]
 const ROAD_END: Array[Vector2] = [Vector2(16, 2), Vector2(22, 0), Vector2(25.5, 0)]
 const CAMP_FIRES: Array[Vector2] = [Vector2(-44.5, -24.5), Vector2(-44.5, 26)]
-const GATE: Vector3 = Vector3(25.0, 0.0, 0.0)
 
 const GRID_MIN: Vector2 = Vector2(-60, -46)
 const GRID_STEP: float = 1.0
