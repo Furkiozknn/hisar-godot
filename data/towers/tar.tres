@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="TowerData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/tower_data.gd" id="1_mpdgx"]
+
+[resource]
+script = ExtResource("1_mpdgx")
+id = &"tar"
+name_key = "tarName"
+desc_key = "tarDesc"
+icon_color = Color(1, 0.5411765, 0.16470589, 1)
+cost = PackedInt32Array(80, 110, 170)
+reach = PackedFloat32Array(7, 7.5, 8.5)
+rate = PackedFloat32Array(2, 1.8, 1.5)
+damage = PackedFloat32Array()
+splash = PackedFloat32Array(2.2, 2.5, 2.9)
+burn_dps = PackedFloat32Array(8, 13, 20)
+slow = PackedFloat32Array(0.55, 0.45, 0.35)
+pivot = PackedFloat32Array(1.7, 2.4, 3.1)
+flight_time = 0.95
+projectile = &"tar"

@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="EnemyData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/enemy_data.gd" id="1_ldr7w"]
+
+[resource]
+script = ExtResource("1_ldr7w")
+id = &"ram"
+name_key = "ram"
+hp = 1400.0
+speed = 1.45
+gold = 70
+armor = 0.35
+lives = 6
+height = 2.6
+model_scale = 1.7
+is_boss = true

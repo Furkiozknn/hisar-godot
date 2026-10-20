@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="TowerData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/tower_data.gd" id="1_453o2"]
+
+[resource]
+script = ExtResource("1_453o2")
+id = &"archer"
+name_key = "archerName"
+desc_key = "archerDesc"
+icon_color = Color(0.18431373, 0.37254903, 0.5411765, 1)
+cost = PackedInt32Array(60, 90, 140)
+reach = PackedFloat32Array(9, 10, 11)
+rate = PackedFloat32Array(0.75, 0.6, 0.45)
+damage = PackedFloat32Array(15, 24, 38)
+splash = PackedFloat32Array()
+burn_dps = PackedFloat32Array()
+slow = PackedFloat32Array()
+pivot = PackedFloat32Array(3.2, 4, 4.8)

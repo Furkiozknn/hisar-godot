@@ -1,0 +1,50 @@
+[gd_resource type="Resource" script_class="WavePlan" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/wave_rule.gd" id="1_oilxb"]
+[ext_resource type="Script" path="res://scripts/data/wave_plan.gd" id="2_rplyh"]
+
+[sub_resource type="Resource" id="Resource_34wd3"]
+script = ExtResource("1_oilxb")
+base_count = 5
+count_per_wave = 1.6
+gap_per_wave = 0.03
+gap_min = 0.45
+
+[sub_resource type="Resource" id="Resource_5jn2m"]
+script = ExtResource("1_oilxb")
+enemy = &"rider"
+from_wave = 3
+base_count = 2
+count_per_wave = 0.9
+gap_base = 0.55
+gap_min = 0.55
+
+[sub_resource type="Resource" id="Resource_j2nwi"]
+script = ExtResource("1_oilxb")
+enemy = &"shield"
+from_wave = 5
+count_per_wave = 0.9
+count_offset = 3
+gap_base = 1.3
+gap_min = 1.3
+
+[sub_resource type="Resource" id="Resource_2f66m"]
+script = ExtResource("1_oilxb")
+from_wave = 4
+every = 2
+base_count = 3
+gap_base = 0.4
+gap_min = 0.4
+
+[sub_resource type="Resource" id="Resource_0gtlx"]
+script = ExtResource("1_oilxb")
+enemy = &"ram"
+from_wave = 5
+every = 5
+count_per_wave = 0.2
+gap_base = 4.0
+gap_min = 4.0
+
+[resource]
+script = ExtResource("2_rplyh")
+rules = Array[ExtResource("1_oilxb")]([SubResource("Resource_34wd3"), SubResource("Resource_5jn2m"), SubResource("Resource_j2nwi"), SubResource("Resource_2f66m"), SubResource("Resource_0gtlx")])

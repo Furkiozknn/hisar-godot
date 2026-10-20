@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="TowerData" format=3]
+
+[ext_resource type="Script" path="res://scripts/data/tower_data.gd" id="1_k24y1"]
+
+[resource]
+script = ExtResource("1_k24y1")
+id = &"cannon"
+name_key = "cannonName"
+desc_key = "cannonDesc"
+icon_color = Color(0.1882353, 0.20392157, 0.22745098, 1)
+cost = PackedInt32Array(110, 150, 220)
+reach = PackedFloat32Array(8.5, 9, 10)
+rate = PackedFloat32Array(2.4, 2.1, 1.8)
+damage = PackedFloat32Array(40, 65, 105)
+splash = PackedFloat32Array(2.4, 2.8, 3.3)
+burn_dps = PackedFloat32Array()
+slow = PackedFloat32Array()
+pivot = PackedFloat32Array(1.48, 1.98, 2.48)
+flight_time = 0.85
+projectile = &"ball"
