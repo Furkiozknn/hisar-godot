@@ -66,6 +66,10 @@ var _scale: float = 1.0
 var _vig_mat: ShaderMaterial
 var _vig: float = 0.0
 var _dirty: bool = false
+## Top of the toast stack when no boss bar is shown (set by _layout).
+var _toast_top: float = 0.0
+## Card scale that fits a tall card (the title) on short landscape screens.
+var _card_fit: float = 1.0
 
 static var _fonts: Dictionary = {}
 
@@ -441,10 +445,12 @@ func _layout(v: Vector2) -> void:
 	else:
 		_btn_panel.position = Vector2(v.x - m - _btn_panel.size.x, m)
 	var top_bottom: float = _btn_panel.position.y + _btn_panel.size.y if compact else _stats_panel.position.y + _stats_panel.size.y
-	_toasts.position = Vector2(m, top_bottom + 10.0)
+	_toast_top = top_bottom + 10.0
+	_toasts.position = Vector2(m, _toast_top)
 	_toasts.size = Vector2(v.x - 2.0 * m, 10)
 	_boss.reset_size()
-	_boss.position = Vector2((v.x - _boss.size.x) / 2.0, top_bottom + (54.0 if compact else 10.0))
+	_boss.position = Vector2((v.x - _boss.size.x) / 2.0, top_bottom + 10.0)
+	_place_toasts()
 	_wave_box_inner.vertical = not compact
 	_wave_btn.custom_minimum_size.y = _tap(44.0)
 	_next_lbl.visible = not compact
@@ -490,6 +496,8 @@ func _layout_card(v: Vector2) -> void:
 	_card.reset_size()
 	_card.position = (v - _card.size) / 2.0
 	_card.pivot_offset = _card.size / 2.0
+	_card_fit = minf(1.0, (v.y - 16.0) / maxf(_card.size.y, 1.0))
+	_card.scale = Vector2.ONE * _card_fit
 
 
 # ---------------------------------------------------------------- HUD
@@ -536,7 +544,10 @@ func _process(delta: float) -> void:
 		_refresh_wave_box()
 	_update_wave_button()
 	var b: BattleSim.Enemy = sim.boss()
-	_boss.visible = b != null and not sim.over
+	var boss_on: bool = b != null and not sim.over
+	if boss_on != _boss.visible:
+		_boss.visible = boss_on
+		_place_toasts()
 	_wavebox.visible = not sim.over
 	if b != null:
 		_boss_bar.value = lerpf(_boss_bar.value, b.hp / b.max_hp, 1.0 - exp(-delta * 10.0))
@@ -611,6 +622,11 @@ func _refresh_wave_box() -> void:
 			_preview.add_child(chip)
 	_next_lbl.text = Loc.t("next")
 	_dirty = true
+
+
+## The toast stack sits under the top bar, or under the boss bar while a ram is on the road.
+func _place_toasts() -> void:
+	_toasts.position.y = _boss.position.y + _boss.size.y + 6.0 if _boss.visible else _toast_top
 
 
 func clear_toasts() -> void:
@@ -957,14 +973,15 @@ func show_screen(name_id: String, data: Dictionary = {}) -> void:
 	if _focus_first != null:
 		_grab_later.call_deferred(_focus_first)
 	if same:
-		_card.scale = Vector2.ONE
+		_card.scale = Vector2.ONE * _card_fit
 		return
 	var tw: Tween = _card.create_tween().set_parallel(true)
 	if not was:
 		_overlay.modulate = Color(1, 1, 1, 0)
 		tw.tween_property(_overlay, "modulate:a", 1.0, 0.25)
-	_card.scale = Vector2(0.93, 0.93)
-	tw.tween_property(_card, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	_card.scale = Vector2.ONE * (0.93 * _card_fit)
+	# the fit can change after this frame's layout, so it is read on every step of the pop-in
+	tw.tween_method(func(k: float) -> void: _card.scale = Vector2.ONE * (k * _card_fit), 0.93, 1.0, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
 func _grab_later(c: Control) -> void:
